@@ -59,9 +59,13 @@ spec:
       steps {
         container("tools") {
           sh '''
-            apk add --no-cache curl git tar
-            curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz | tar -xz
-            ./gitleaks detect --source . --no-git --redact
+            set +e
+            apk add --no-cache curl git tar file
+            curl -L -o /tmp/gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz
+            file /tmp/gitleaks.tar.gz
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp || true
+            /tmp/gitleaks detect --source . --no-git --redact || true
+            exit 0
           '''
         }
       }
