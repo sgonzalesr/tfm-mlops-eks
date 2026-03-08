@@ -2,46 +2,59 @@ pipeline {
   agent {
     kubernetes {
       yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  serviceAccountName: jenkins
-  containers:
-    - name: kaniko
-      image: gcr.io/kaniko-project/executor:v1.23.2-debug
-      command: ["/busybox/cat"]
-      tty: true
-      env:
-        - name: AWS_REGION
-          value: "us-east-1"
-        - name: AWS_SDK_LOAD_CONFIG
-          value: "true"
-      volumeMounts:
-        - name: docker-config
-          mountPath: /kaniko/.docker
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
+  apiVersion: v1
+  kind: Pod
+  spec:
+    serviceAccountName: jenkins
+    restartPolicy: Never
+    nodeSelector:
+      kubernetes.io/os: linux
+    containers:
+      - name: kaniko
+        image: gcr.io/kaniko-project/executor:v1.23.2-debug
+        command: ["/busybox/cat"]
+        tty: true
+        env:
+          - name: AWS_REGION
+            value: "us-east-1"
+          - name: AWS_SDK_LOAD_CONFIG
+            value: "true"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "3Gi"
+            cpu: "2000m"
+        volumeMounts:
+          - name: docker-config
+            mountPath: /kaniko/.docker
+          - name: workspace-volume
+            mountPath: /home/jenkins/agent
 
-    - name: tools
-      image: alpine:3.19
-      command: ["/bin/sh", "-c", "cat"]
-      tty: true
-      volumeMounts:
-        - name: docker-config
-          mountPath: /docker-config
-        - name: workspace-volume
-          mountPath: /home/jenkins/agent
+      - name: tools
+        image: alpine:3.19
+        command: ["/bin/sh", "-c", "cat"]
+        tty: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+          - name: docker-config
+            mountPath: /docker-config
+          - name: workspace-volume
+            mountPath: /home/jenkins/agent
 
-  restartPolicy: Never
-  nodeSelector:
-    kubernetes.io/os: linux
-
-  volumes:
-    - name: docker-config
-      emptyDir: {}
-    - name: workspace-volume
-      emptyDir: {}
-"""
+    volumes:
+      - name: docker-config
+        emptyDir: {}
+      - name: workspace-volume
+        emptyDir: {}
+  """
     }
   }
 
