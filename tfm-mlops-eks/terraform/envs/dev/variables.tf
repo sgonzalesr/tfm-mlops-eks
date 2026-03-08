@@ -22,12 +22,12 @@ variable "cluster_version" {
 variable "node_instance_types" {
   type        = list(string)
   description = "EC2 instance types for node group"
-  default     = ["t3.large"]
+  default     = ["t3.medium"]
 }
 
 variable "desired_size" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "min_size" {
@@ -37,5 +37,5 @@ variable "min_size" {
 
 variable "max_size" {
   type    = number
-  default = 3
+  default = 2
 }

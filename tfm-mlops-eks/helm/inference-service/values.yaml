@@ -1,8 +1,8 @@
-replicaCount: 1
+replicaCount: 2
 
 image:
-  repository: ""
-  tag: "0.1"
+  repository: "614520203750.dkr.ecr.us-east-1.amazonaws.com/tfm-mlops-inference"
+  tag: "0.1-manual-3"
   pullPolicy: IfNotPresent
 
 serviceAccount:
@@ -17,24 +17,23 @@ service:
 ingress:
   enabled: true
   className: "nginx"
-  host: ""        # opcional, si quieres host tipo api.tu-dominio
+  host: ""
   path: "/"
   pathType: Prefix
 
 env:
   MLFLOW_TRACKING_URI: "http://mlflow.mlops.svc.cluster.local:5000"
-  MODEL_URI: "runs:/ecf399e21bd549c895fb18c2d7eecb9a/model"
+  MODEL_URI: "runs:/b2c10be3e0914140be1756a597a2e678/model"
   THRESHOLD: "0.5"
 
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    cpu: 300m
+    cpu: 500m
     memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
 
-# Para Prometheus Operator (kube-prometheus-stack)
 serviceMonitor:
   enabled: true
   interval: 15s

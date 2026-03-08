@@ -14,7 +14,9 @@ from starlette.responses import Response
 
 
 # ===== Config =====
-MODEL_URI = os.getenv("MODEL_URI", "runs:/ecf399e21bd549c895fb18c2d7eecb9a/model")
+MODEL_URI = os.getenv("MODEL_URI")
+if not MODEL_URI:
+    raise RuntimeError("MODEL_URI environment variable is required")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow.mlops.svc.cluster.local:5000")
 THRESHOLD = float(os.getenv("THRESHOLD", "0.5"))
 
