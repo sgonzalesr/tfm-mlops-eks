@@ -1,135 +1,175 @@
 pipeline {
-  agent any
-
-  options {
-    timestamps()
-    disableConcurrentBuilds()
+  agent {
+    kubernetes {
+      yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:v1.23.2-debug
+    command: ["/busybox/cat"]
+    tty: true
+    env:
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: AWS_SDK_LOAD_CONFIG
+      value: "true"
+    volumeMounts:
+    - name: docker-config
+      mountPath: /kaniko/.docker
+    - name: aws-config
+      mountPath: /root/.aws
+  - name: tools
+    image: alpine:3.19
+    command: ["/bin/sh","-c","cat"]
+    tty: true
+    volumeMounts:
+    - name: docker-config
+      mountPath: /docker-config
+    - name: aws-config
+      mountPath: /root/.aws
+  volumes:
+  - name: docker-config
+    emptyDir: {}
+  - name: aws-config
+    emptyDir: {}
+"""
+    }
   }
 
   environment {
-    AWS_REGION    = "us-east-1"
-    CLUSTER_NAME  = "tfm-mlops-dev"
-
-    // ECR
-    ECR_REPO      = "tfm-mlops-inference"
-    IMAGE_TAG     = "0.1-${env.BUILD_NUMBER}"
-
-    // K8s / Helm
-    NAMESPACE     = "apps"
-    RELEASE       = "inference"
-    DEPLOYMENT    = "inference-inference"
-    SERVICE       = "inference-inference"
-
-    // Subcarpeta real del proyecto
-    PROJECT_DIR   = "tfm-mlops-eks"
-    CHART_DIR     = "helm/inference-service"
+    AWS_REGION   = "us-east-1"
+    NAMESPACE    = "apps"
+    RELEASE      = "inference"
+    CHART_PATH   = "helm/inference-service"
+    ECR_REGISTRY = "614520203750.dkr.ecr.us-east-1.amazonaws.com"
+    IMAGE_REPO   = "614520203750.dkr.ecr.us-east-1.amazonaws.com/tfm-mlops-inference"
   }
 
   stages {
-
     stage("Checkout") {
-      steps { checkout scm }
-    }
-
-    stage("Verify tools") {
       steps {
-        sh '''
-          set -e
-          docker version
-          aws --version
-          kubectl version --client
-          helm version
-        '''
+        checkout scm
       }
     }
 
-    stage("AWS identity + ECR login") {
+    stage("Security - Gitleaks") {
       steps {
-        sh '''
-          set -euo pipefail
-
-          aws sts get-caller-identity
-
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}
-
-          echo "ECR_URI=$ECR_URI" > ecr.env
-
-          # Crea repo si no existe (idempotente)
-          aws ecr describe-repositories --region ${AWS_REGION} --repository-names ${ECR_REPO} >/dev/null 2>&1 \
-            || aws ecr create-repository --region ${AWS_REGION} --repository-name ${ECR_REPO} >/dev/null
-
-          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $ECR_URI
-        '''
-      }
-    }
-
-    stage("Build & Push image") {
-      steps {
-        dir("${PROJECT_DIR}") {
+        container("tools") {
           sh '''
-            set -euo pipefail
-            source ../ecr.env
-
-            docker build -t ${ECR_REPO}:${IMAGE_TAG} ./service
-            docker tag  ${ECR_REPO}:${IMAGE_TAG} ${ECR_URI}:${IMAGE_TAG}
-            docker push ${ECR_URI}:${IMAGE_TAG}
+            apk add --no-cache curl git tar
+            curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz | tar -xz
+            ./gitleaks detect --source . --no-git --redact
           '''
         }
       }
     }
 
-    stage("Update kubeconfig") {
+    stage("Build & Push (Kaniko -> ECR)") {
       steps {
-        sh '''
-          set -euo pipefail
-          aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
-          kubectl get nodes
-        '''
-      }
-    }
+        withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          container("tools") {
+            sh '''
+              apk add --no-cache python3 py3-pip coreutils
+              pip3 install --no-cache-dir awscli
 
-    stage("Helm deploy") {
-      steps {
-        dir("${PROJECT_DIR}") {
-          sh '''
-            set -euo pipefail
-            source ../ecr.env
+              mkdir -p /root/.aws /docker-config
 
-            helm lint ./${CHART_DIR}
+              cat > /root/.aws/credentials <<EOF
+[default]
+aws_access_key_id=${AWS_ACCESS_KEY_ID}
+aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
+region=${AWS_REGION}
+EOF
 
-            helm upgrade --install ${RELEASE} ./${CHART_DIR} -n ${NAMESPACE} --create-namespace \
-              --set image.repository=${ECR_URI} \
-              --set image.tag=${IMAGE_TAG}
+              PASS=$(aws ecr get-login-password --region "${AWS_REGION}")
+              AUTH=$(printf "AWS:%s" "$PASS" | base64 | tr -d '\\n')
 
-            kubectl -n ${NAMESPACE} rollout status deploy/${DEPLOYMENT} --timeout=180s
-            kubectl -n ${NAMESPACE} get pods
-          '''
-        }
-      }
-    }
-
-    stage("Smoke test (in-cluster)") {
-      steps {
-        sh '''
-          set -euo pipefail
-
-          # kubectl de tu versión requiere "attach" para permitir --rm
-          kubectl -n ${NAMESPACE} run smoke-${BUILD_NUMBER} --rm --restart=Never --image=curlimages/curl --attach -- \
-            curl -fsS http://${SERVICE}/health
-
-          kubectl -n ${NAMESPACE} run smoke2-${BUILD_NUMBER} --rm --restart=Never --image=curlimages/curl --attach -- \
-            curl -fsS -X POST http://${SERVICE}/predict \
-              -H "Content-Type: application/json" \
-              -d '{"features":{"laufkont":2,"laufzeit":24,"moral":2,"verw":3,"hoehe":2000,"sparkont":2,"beszeit":2,"rate":2,"famges":2,"buerge":1,"wohnzeit":2,"verm":2,"alter":35,"weitkred":1,"wohn":2,"bishkred":1,"beruf":3,"pers":1,"telef":1,"gastarb":1}}'
-        '''
-      }
+              cat > /docker-config/config.json <<EOF
+{
+  "auths": {
+    "${ECR_REGISTRY}": {
+      "auth": "${AUTH}"
     }
   }
+}
+EOF
+            '''
+          }
 
-  post {
-    always {
-      sh 'echo "Pipeline finished. Build=${BUILD_NUMBER}"'
+          container("kaniko") {
+            sh '''
+              /kaniko/executor \
+                --context "${WORKSPACE}/service" \
+                --dockerfile "${WORKSPACE}/service/Dockerfile" \
+                --destination "${IMAGE_REPO}:${BUILD_NUMBER}" \
+                --destination "${IMAGE_REPO}:latest" \
+                --snapshotMode=redo
+            '''
+          }
+        }
+      }
+    }
+
+    stage("Security - Trivy") {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          container("tools") {
+            sh '''
+              apk add --no-cache python3 py3-pip curl
+              pip3 install --no-cache-dir awscli
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+              PASS=$(aws ecr get-login-password --region "${AWS_REGION}")
+              trivy image --username AWS --password "$PASS" --severity HIGH,CRITICAL --no-progress "${IMAGE_REPO}:${BUILD_NUMBER}"
+            '''
+          }
+        }
+      }
+    }
+
+    stage("Deploy (Helm)") {
+      steps {
+        container("tools") {
+          sh '''
+            apk add --no-cache curl bash git tar
+            curl -sSL https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz | tar -xz
+            mv linux-amd64/helm /usr/local/bin/helm
+
+            curl -LO https://dl.k8s.io/release/v1.29.15/bin/linux/amd64/kubectl
+            install -m 0755 kubectl /usr/local/bin/kubectl
+
+            helm upgrade --install "${RELEASE}" "${CHART_PATH}" -n "${NAMESPACE}" \
+              --set image.repository="${IMAGE_REPO}" \
+              --set-string image.tag="${BUILD_NUMBER}" \
+              --atomic --wait --timeout 10m
+
+            kubectl -n "${NAMESPACE}" rollout status deploy/${RELEASE}-inference --timeout=10m
+          '''
+        }
+      }
+    }
+
+    stage("Smoke test") {
+      steps {
+        container("tools") {
+          sh '''
+            apk add --no-cache curl
+            SVC=$(kubectl -n "${NAMESPACE}" get svc -l app.kubernetes.io/instance="${RELEASE}" -o jsonpath='{.items[0].metadata.name}')
+            kubectl -n "${NAMESPACE}" port-forward svc/$SVC 18080:80 >/tmp/pf.log 2>&1 &
+            PF_PID=$!
+            trap "kill $PF_PID" EXIT
+
+            sleep 5
+            curl -sf http://127.0.0.1:18080/health
+            curl -sf -X POST http://127.0.0.1:18080/predict \
+              -H "Content-Type: application/json" \
+              --data @payload.json
+          '''
+        }
+      }
     }
   }
 }
