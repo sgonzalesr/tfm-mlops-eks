@@ -58,7 +58,7 @@ spec:
     NAMESPACE           = "apps"
     RELEASE             = "inference"
     DEPLOYMENT          = "inference-inference"
-    CHART_PATH          = "tfm-mlops-eks/helm/helm/inference-service"
+    CHART_PATH          = "tfm-mlops-eks/helm/inference-service"
 
     SERVICE_DIR         = "tfm-mlops-eks/service"
     PAYLOAD_FILE        = "payload.json"
