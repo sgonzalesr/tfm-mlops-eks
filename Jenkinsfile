@@ -21,8 +21,8 @@ pipeline {
             value: "true"
         resources:
           requests:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "1200Mi"
+            cpu: "500m"
           limits:
             memory: "3Gi"
             cpu: "2000m"
@@ -38,8 +38,8 @@ pipeline {
         tty: true
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "256Mi"
+            cpu: "100m"
           limits:
             memory: "1Gi"
             cpu: "500m"
