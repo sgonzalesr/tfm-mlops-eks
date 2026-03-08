@@ -21,11 +21,11 @@ pipeline {
             value: "true"
         resources:
           requests:
-            memory: "1200Mi"
-            cpu: "500m"
+            memory: "768Mi"
+            cpu: "400m"
           limits:
-            memory: "3Gi"
-            cpu: "2000m"
+            memory: "2Gi"
+            cpu: "1500m"
         volumeMounts:
           - name: docker-config
             mountPath: /kaniko/.docker
@@ -38,11 +38,11 @@ pipeline {
         tty: true
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "128Mi"
+            cpu: "50m"
           limits:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "512Mi"
+            cpu: "300m"
         volumeMounts:
           - name: docker-config
             mountPath: /docker-config
