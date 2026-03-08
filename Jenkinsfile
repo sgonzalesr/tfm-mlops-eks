@@ -58,9 +58,9 @@ spec:
     NAMESPACE           = "apps"
     RELEASE             = "inference"
     DEPLOYMENT          = "inference-inference"
-    CHART_PATH          = "helm/inference-service"
+    CHART_PATH          = "tfm-mlops-eks/helm/helm/inference-service"
 
-    SERVICE_DIR         = "service"
+    SERVICE_DIR         = "tfm-mlops-eks/service"
     PAYLOAD_FILE        = "payload.json"
 
     MLFLOW_TRACKING_URI = "http://mlflow.mlops.svc.cluster.local:5000"
